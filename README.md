@@ -15,4 +15,7 @@ The Chainlit copilot for our platform [documentation](https://docs.getliteral.ai
 
 ### The Chainlit Copilot
 
+- Make sure the Chainlit application is running.
+- `python -m http.server 3004 --directory copilot`
+
 ### Embed the documentation
