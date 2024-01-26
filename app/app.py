@@ -9,7 +9,9 @@ load_dotenv()
 openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 pinecone_client = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
-pinecone_spec = ServerlessSpec(cloud="aws", region="us-west-2")
+pinecone_spec = ServerlessSpec(
+    cloud=os.environ.get("PINECONE_CLOUD"), region=os.environ.get("PINECONE_REGION")
+)
 
 
 def create_pinecone_index(name, client, spec):
