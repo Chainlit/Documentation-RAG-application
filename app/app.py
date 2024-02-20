@@ -44,7 +44,7 @@ async def retrieve(embedding):
 @cl.step(name="LLM", type="llm")
 async def llm(
     prompt,
-    chat_model="gpt-3.5-turbo",
+    chat_model="gpt-4-turbo-preview",
 ):
     messages = cl.user_session.get("messages", [])
     messages.append({"role": "user", "content": prompt})
@@ -61,9 +61,9 @@ async def llm(
     if current_step:
         current_step.generation = cl.ChatGeneration(
             provider="openai-chat",
-            completion=message.content,
+            message_completion={"content": message.content, "role": "assistant"},
             messages=[
-                cl.GenerationMessage(formatted=m["content"], role=m["role"])
+                cl.GenerationMessage(content=m["content"], role=m["role"])
                 for m in messages
             ],
             settings=settings,
