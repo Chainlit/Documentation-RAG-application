@@ -44,13 +44,10 @@ async def retrieve(embedding):
 @cl.step(name="LLM", type="llm")
 async def llm(
     prompt,
-    sys_prompt="You are a helpful assistant that always answers questions. Keep it short, and prefer responding with code.",
     chat_model="gpt-3.5-turbo",
 ):
-    messages = [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": prompt},
-    ]
+    messages = cl.user_session.get("messages", [])
+    messages.append({"role": "user", "content": prompt})
     settings = {"temperature": 0, "stream": True, "model": chat_model}
     stream = await openai_client.chat.completions.create(messages=messages, **settings)
     message = cl.message.Message(content="")
@@ -72,6 +69,8 @@ async def llm(
             settings=settings,
         )
     await message.update()
+    messages.append({"role": "assistant", "content": message.content})
+    cl.user_session.set("messages", messages)
     return message.content
 
 
@@ -92,6 +91,19 @@ async def run(query):
     completion = await llm(prompt)
 
     return completion
+
+
+@cl.on_chat_start
+def on_chat_start():
+    cl.user_session.set(
+        "messages",
+        [
+            {
+                "role": "system",
+                "content": "You are a helpful assistant that always answers questions. Keep it short, and prefer responding with code.",
+            }
+        ],
+    )
 
 
 @cl.on_message
