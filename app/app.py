@@ -3,15 +3,19 @@ import os
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from pinecone import Pinecone, ServerlessSpec
+from literalai import LiteralClient
 
 load_dotenv()
 
+client = LiteralClient()
 openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 pinecone_client = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
 pinecone_spec = ServerlessSpec(
     cloud=os.environ.get("PINECONE_CLOUD"), region=os.environ.get("PINECONE_REGION")
 )
+
+cl.instrument_openai()
 
 
 def create_pinecone_index(name, client, spec):
@@ -47,7 +51,7 @@ async def llm(
     chat_model="gpt-4-turbo-preview",
 ):
     messages = cl.user_session.get("messages", [])
-    messages.append({"role": "user", "content": prompt})
+    messages.append(prompt)
     settings = {"temperature": 0, "stream": True, "model": chat_model}
     stream = await openai_client.chat.completions.create(messages=messages, **settings)
     message = cl.message.Message(content="")
@@ -56,18 +60,7 @@ async def llm(
     async for part in stream:
         if token := part.choices[0].delta.content or "":
             await message.stream_token(token)
-    current_step = cl.context.current_step
 
-    if current_step:
-        current_step.generation = cl.ChatGeneration(
-            provider="openai-chat",
-            message_completion={"content": message.content, "role": "assistant"},
-            messages=[
-                cl.GenerationMessage(content=m["content"], role=m["role"])
-                for m in messages
-            ],
-            settings=settings,
-        )
     await message.update()
     messages.append({"role": "assistant", "content": message.content})
     cl.user_session.set("messages", messages)
@@ -79,30 +72,27 @@ async def run(query):
     embedding = await embed(query)
     stored_embeddings = await retrieve(embedding)
     contexts = []
+    prompt = await client.api.get_prompt(name="RAG prompt")
 
+    if not prompt:
+        raise Exception("Prompt not found")
     for match in stored_embeddings["matches"]:
         contexts.append(match["metadata"]["text"])
-    prompt = (
-        "Answer the question based on the context below.\n\n"
-        + "Context:\n"
-        + "\n".join(contexts)
-        + f"\n\nQuestion: {query}\nAnswer:"
-    )
-    completion = await llm(prompt)
+
+    completion = await llm(prompt.format({"context": contexts, "question": query})[-1])
 
     return completion
 
 
 @cl.on_chat_start
-def on_chat_start():
+async def on_chat_start():
+    prompt = await client.api.get_prompt(name="RAG prompt")
+
+    if not prompt:
+        raise Exception("Prompt not found")
     cl.user_session.set(
         "messages",
-        [
-            {
-                "role": "system",
-                "content": "You are a helpful assistant that always answers questions. Keep it short, and prefer responding with code.",
-            }
-        ],
+        [prompt.format()[0]],
     )
 
 

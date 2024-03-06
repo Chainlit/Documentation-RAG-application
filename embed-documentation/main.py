@@ -11,7 +11,9 @@ documentation_path = os.path.join(os.getcwd(), "./documentation")
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 pinecone_client = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
-pinecone_spec = ServerlessSpec(cloud="aws", region="us-west-2")
+pinecone_spec = ServerlessSpec(
+    cloud=os.environ.get("PINECONE_CLOUD"), region=os.environ.get("PINECONE_REGION")
+)
 
 
 def create_dataset(id, path):
@@ -65,8 +67,10 @@ def create_embedding_set(dataset, model="text-embedding-ada-002"):
 
 
 def create_pinecone_index(name, client, spec):
-    if name not in client.list_indexes().names():
-        client.create_index(name, dimension=1536, metric="cosine", spec=spec)
+    if name in client.list_indexes().names():
+        client.delete_index(name)
+
+    client.create_index(name, dimension=1536, metric="cosine", spec=spec)
     return pinecone_client.Index(name)
 
 
