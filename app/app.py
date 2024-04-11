@@ -3,11 +3,10 @@ import os
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from pinecone import Pinecone, ServerlessSpec
-from literalai import LiteralClient
+from literalai import AsyncLiteralClient
 
 load_dotenv()
-
-client = LiteralClient()
+client = AsyncLiteralClient()
 openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 pinecone_client = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
