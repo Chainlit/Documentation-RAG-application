@@ -41,8 +41,7 @@ async def retrieve(embedding):
     if pinecone_index == None:
         raise Exception("Pinecone index not initialized")
     response = pinecone_index.query(vector=embedding, top_k=5, include_metadata=True)
-
-    return response
+    return response.to_dict()
 
 
 @cl.step(name="LLM", type="llm")
