@@ -2,7 +2,9 @@ import os
 import re
 from dotenv import load_dotenv
 from openai import OpenAI
-from pinecone import Pinecone, ServerlessSpec
+import chromadb
+
+import pickle
 
 load_dotenv()
 
@@ -10,10 +12,7 @@ documentation_path = os.path.join(os.getcwd(), "./documentation")
 
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-pinecone_client = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
-pinecone_spec = ServerlessSpec(
-    cloud=os.environ.get("PINECONE_CLOUD"), region=os.environ.get("PINECONE_REGION")
-)
+chroma_client = chromadb.PersistentClient(path=f"{os.getcwd()}/chromadb")
 
 
 def create_dataset(id, path):
@@ -61,48 +60,69 @@ def create_embedding_set(dataset, model="text-embedding-ada-002"):
         response = (
             openai_client.embeddings.create(input=input, model=model).data[0].embedding
         )
-        values.append({"text": input, "values": response})
+        values.append({"title": item["title"], "text": input, "values": response})
 
     return {"id": dataset["id"], "values": values}
 
 
-def create_pinecone_index(name, client, spec):
-    if name in client.list_indexes().names():
-        client.delete_index(name)
+def create_chroma_collection(name):
+    if name in [collection.name for collection in chroma_client.list_collections()]:
+        chroma_client.delete_collection(name)
 
-    client.create_index(name, dimension=1536, metric="cosine", spec=spec)
-    return pinecone_client.Index(name)
+    chroma_client.create_collection(name)
+    return chroma_client.get_collection(name)
 
 
-def upload_to_index(index, embedding_set, batch_size=100):
+def upload_to_collection(collection, embedding_set, batch_size=100):
     values = embedding_set["values"]
     total_values = len(values)
 
     for i in range(0, total_values, batch_size):
-        batch = []
+        ids = []
+        embeddings = []
+        metadatas = []
+        documents = []
 
         for j in range(i, min(i + batch_size, total_values)):
-            batch.append(
-                {
-                    "id": f"vector_{j}",
-                    "values": values[j]["values"],
-                    "metadata": {
-                        "dataset_id": embedding_set["id"],
-                        "text": values[j]["text"],
-                    },
-                }
+            ids.append(f"vector_{j}")
+            embeddings.append(values[j]["values"])
+            metadatas.append(
+                {"dataset_id": embedding_set["id"], "text": values[j]["text"]}
             )
-        index.upsert(batch)
+            documents.append(values[j]["title"])
+
+        collection.upsert(
+            ids=ids, embeddings=embeddings, metadatas=metadatas, documents=documents
+        )
 
 
-dataset = create_dataset("dataset_1", documentation_path)
-print("Dataset created from documentation")
-embeddings = create_embedding_set(dataset)
-print("Embeddings created from dataset")
-pinecone_index = create_pinecone_index(
-    "literal-rag-index", pinecone_client, pinecone_spec
-)
-print("Pinecone index created")
+"""
+    Uncomment the following lines to generate embeddings.
+    Split the doc into chunks and calls OpenAI API to generate embeddings.
 
-upload_to_index(pinecone_index, embeddings)
-print("Embeddings uploaded to index")
+    Serializes the embeddings to a file for future use.
+"""
+
+embeddings = None
+embeddings_filename = "literal-docs.emb"
+
+if not os.path.exists(embeddings_filename):
+    dataset = create_dataset("dataset_1", documentation_path)
+    print("Dataset created from documentation")
+
+    embeddings = create_embedding_set(dataset)
+    print("Embeddings created from dataset")
+
+    with open(embeddings_filename, "wb") as f:
+        pickle.dump(embeddings, f)
+    print("Embeddings saved to file for future use")
+else:
+    with open(embeddings_filename, "rb") as f:
+        embeddings = pickle.load(f)
+    print("Embeddings loaded from file")
+
+chroma_collection = create_chroma_collection("literal-doc-collection")
+print("Chroma collection created")
+
+upload_to_collection(chroma_collection, embeddings)
+print("Embeddings uploaded to collection")

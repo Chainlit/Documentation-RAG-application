@@ -1,31 +1,28 @@
-import chainlit as cl
 import os
+
+import chainlit as cl
+import chromadb
+
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
-from pinecone import Pinecone, ServerlessSpec
 from literalai import AsyncLiteralClient
 
 load_dotenv()
 client = AsyncLiteralClient()
 openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-pinecone_client = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
-pinecone_spec = ServerlessSpec(
-    cloud=os.environ.get("PINECONE_CLOUD"), region=os.environ.get("PINECONE_REGION")
-)
+chroma_client = chromadb.PersistentClient(path=f"{os.getcwd()}/chromadb")
 
 cl.instrument_openai()
 
 
-def create_pinecone_index(name, client, spec):
-    if name not in client.list_indexes().names():
-        client.create_index(name, dimension=1536, metric="cosine", spec=spec)
-    return pinecone_client.Index(name)
+def create_chroma_collection(name):
+    if name not in [collection.name for collection in chroma_client.list_collections()]:
+        chroma_client.create_collection(name)
+    return chroma_client.get_collection(name)
 
 
-pinecone_index = create_pinecone_index(
-    "literal-rag-index", pinecone_client, pinecone_spec
-)
+chroma_collection = create_chroma_collection("literal-doc-collection")
 
 
 @cl.step(name="Embed", type="embedding")
@@ -37,10 +34,10 @@ async def embed(query, model="text-embedding-ada-002"):
 
 @cl.step(name="Retrieve", type="retrieval")
 async def retrieve(embedding):
-    if pinecone_index == None:
-        raise Exception("Pinecone index not initialized")
-    response = pinecone_index.query(vector=embedding, top_k=5, include_metadata=True)
-    return response.to_dict()
+    if chroma_collection == None:
+        raise Exception("Chroma collection not initialized")
+    # Chroma returns documents and metadatas by default in an extension of TypedDict.
+    return chroma_collection.query(query_embeddings=[embedding], n_results=5)
 
 
 @cl.step(name="LLM", type="llm")
@@ -68,14 +65,17 @@ async def llm(
 @cl.step(name="Query", type="run")
 async def run(query):
     embedding = await embed(query)
-    stored_embeddings = await retrieve(embedding)
+    query_result = await retrieve(embedding)
     contexts = []
+
     prompt = await client.api.get_prompt(name="RAG prompt")
 
     if not prompt:
         raise Exception("Prompt not found")
-    for match in stored_embeddings["matches"]:
-        contexts.append(match["metadata"]["text"])
+
+    # Selecting item 0 because we can query Chroma with several embeddings.
+    for metadata in query_result["metadatas"][0]:
+        contexts.append(metadata["text"])
 
     completion = await llm(prompt.format({"context": contexts, "question": query})[-1])
 
