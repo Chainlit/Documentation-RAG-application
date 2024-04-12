@@ -104,7 +104,7 @@ def upload_to_collection(collection, embedding_set, batch_size=100):
 """
 
 embeddings = None
-embeddings_filename = "literal-docs.emb"
+embeddings_filename = f"{os.getcwd()}/embed-documentation/literal-docs.emb"
 
 if not os.path.exists(embeddings_filename):
     dataset = create_dataset("dataset_1", documentation_path)
