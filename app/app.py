@@ -72,7 +72,7 @@ async def llm(
     if leverage_tools:
         settings["tools"] = cl.user_session.get("tools")
         settings["tool_choice"] = "auto"
-    print(settings)
+
     # TODO: Add streaming with tools.
     # TODO: If create is called with tools, make tool_choice="auto"?
     response = await openai_client.chat.completions.create(
@@ -104,6 +104,7 @@ async def run_multiple(tool_calls):
         function_name = tool_call.function.name
         function_to_call = available_tools[function_name]
         function_args = json.loads(tool_call.function.arguments)
+
         # TODO: Parametrize the arguments depending on tool.
         function_response = await function_to_call(
             query=function_args.get("query"),
@@ -164,22 +165,18 @@ async def on_chat_start():
     await cl.Message(
         content="Welcome, please ask me anything about the Literal documentation !"
     ).send()
-    
 
-    # TODO: Create the prompt only if the lineage doesn't exist.
-    with open("./app/prompts/rag.json", "r") as f:
+    prompt_path = os.path.join(os.getcwd(), "./app/prompts/rag.json")
+    with open(prompt_path, "r") as f:
         rag_prompt = json.load(f)
         # TODO: Do a from_dict to create prompt
         # TODO: If no settings given, the default should be set no?
-        #       Plus, the settings should be returned
         prompt = await client.api.get_or_create_prompt(
             name=rag_prompt["name"],
             template_messages=rag_prompt["template_messages"],
             settings=rag_prompt["settings"],
             tools=rag_prompt["tools"],
         )
-
-    # prompt = await client.api.get_prompt(name="RAG prompt - Tooled")
 
     cl.user_session.set("messages", prompt.format_messages())
     cl.user_session.set("settings", prompt.settings)
