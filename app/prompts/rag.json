@@ -15,16 +15,16 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "query": {
+            "question": {
               "type": "string",
               "description": "The question or query to answer on the documentation."
             },
-            "number_of_chunks": {
+            "top_k": {
               "type": "integer",
               "description": "The number of documentation chunks to retrieve, e.g. 5."
             }
           },
-          "required": ["query"]
+          "required": ["question"]
         }
       }
     }

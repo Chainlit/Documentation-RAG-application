@@ -36,30 +36,30 @@ pinecone_index = create_pinecone_index(
 
 
 @cl.step(name="Embed", type="embedding")
-async def embed(query, model="text-embedding-ada-002"):
-    embedding = await openai_client.embeddings.create(input=query, model=model)
+async def embed(question, model="text-embedding-ada-002"):
+    embedding = await openai_client.embeddings.create(input=question, model=model)
 
     return embedding.data[0].embedding
 
 
 @cl.step(name="Retrieve", type="retrieval")
-async def retrieve(embedding):
+async def retrieve(embedding, top_k):
     if pinecone_index == None:
         raise Exception("Pinecone index not initialized")
-    response = pinecone_index.query(vector=embedding, top_k=5, include_metadata=True)
+    response = pinecone_index.query(
+        vector=embedding, top_k=top_k, include_metadata=True
+    )
     return response.to_dict()
 
 
 @cl.step(type="tool")
-async def get_relevant_documentation_chunks(query, number_of_chunks=5):
-    embedding = await embed(query)
+async def get_relevant_documentation_chunks(question, top_k=5):
+    embedding = await embed(question)
 
-    stored_embeddings = await retrieve(embedding)
+    retrieved_chunks = await retrieve(embedding, top_k)
 
-    contexts = []
+    contexts = [match["metadata"]["text"] for match in retrieved_chunks["matches"]]
 
-    for match in stored_embeddings["matches"]:
-        contexts.append(match["metadata"]["text"])
     return "\n".join(contexts)
 
 
@@ -107,8 +107,8 @@ async def run_multiple(tool_calls):
 
         # TODO: Parametrize the arguments depending on tool.
         function_response = await function_to_call(
-            query=function_args.get("query"),
-            number_of_chunks=function_args.get("number_of_chunks"),
+            question=function_args.get("question"),
+            top_k=function_args.get("top_k"),
         )
         return {
             "tool_call_id": tool_call.id,
@@ -129,8 +129,6 @@ async def pretty_print_answer(tool_results):
     Call an LLM to answer the question based on tools results.
     """
 
-    # TODO: Implement a cl.user_session.add("messages", msg)
-    #       to avoid get/set pattern.
     messages = cl.user_session.get("messages", []) or []
     messages.extend(tool_results)
     cl.user_session.set("messages", messages)
@@ -170,7 +168,6 @@ async def on_chat_start():
     with open(prompt_path, "r") as f:
         rag_prompt = json.load(f)
         # TODO: Do a from_dict to create prompt
-        # TODO: If no settings given, the default should be set no?
         prompt = await client.api.get_or_create_prompt(
             name=rag_prompt["name"],
             template_messages=rag_prompt["template_messages"],
@@ -185,12 +182,7 @@ async def on_chat_start():
 
 @cl.on_message
 async def main(message: cl.Message):
-    """
-    Default assistant name is "Chatbot", can be changed in config.toml
-    """
-
-    # TODO: Move small hack to Chainlit code.
-    #       (hack is to get the spinning wheel on assistant message)
+    # Hack to have agent logic part of Chatbot answer.
     msg = cl.Message(content="")
     await msg.send()
 
