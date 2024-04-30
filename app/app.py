@@ -25,6 +25,9 @@ cl.instrument_openai()
 
 
 def create_pinecone_index(name, client, spec):
+    """
+    Create a Pinecone index if it does not already exist.
+    """
     if name not in client.list_indexes().names():
         client.create_index(name, dimension=1536, metric="cosine", spec=spec)
     return pinecone_client.Index(name)
@@ -37,6 +40,9 @@ pinecone_index = create_pinecone_index(
 
 @cl.step(name="Embed", type="embedding")
 async def embed(question, model="text-embedding-ada-002"):
+    """
+    Embed a question using the specified model and return the embedding.
+    """
     embedding = await openai_client.embeddings.create(input=question, model=model)
 
     return embedding.data[0].embedding
@@ -44,6 +50,9 @@ async def embed(question, model="text-embedding-ada-002"):
 
 @cl.step(name="Retrieve", type="retrieval")
 async def retrieve(embedding, top_k):
+    """
+    Retrieve top_k closest vectors from the Pinecone index using the provided embedding.
+    """
     if pinecone_index == None:
         raise Exception("Pinecone index not initialized")
     response = pinecone_index.query(
@@ -54,6 +63,9 @@ async def retrieve(embedding, top_k):
 
 @cl.step(name="Retrieval", type="tool")
 async def get_relevant_documentation_chunks(question, top_k=5):
+    """
+    Retrieve relevant documentation chunks based on the question embedding.
+    """
     embedding = await embed(question)
 
     retrieved_chunks = await retrieve(embedding, top_k)
@@ -64,6 +76,9 @@ async def get_relevant_documentation_chunks(question, top_k=5):
 
 
 async def llm_tool(question):
+    """
+    Generate a response from the LLM based on the user's question.
+    """
     messages = cl.user_session.get("messages", []) or []
     messages.append({"role": "user", "content": question})
 
@@ -82,6 +97,9 @@ async def llm_tool(question):
 
 
 async def run_multiple(tool_calls):
+    """
+    Execute multiple tool calls asynchronously.
+    """
     available_tools = {
         "get_relevant_documentation_chunks": get_relevant_documentation_chunks
     }
@@ -112,9 +130,8 @@ async def run_multiple(tool_calls):
 
 async def llm_answer(tool_results):
     """
-    Call an LLM to answer the question based on tools results.
+    Generate an answer from the LLM based on the results of tool calls.
     """
-
     messages = cl.user_session.get("messages", []) or []
     messages.extend(tool_results)
 
@@ -140,12 +157,8 @@ async def llm_answer(tool_results):
 @cl.step(name="RAG Agent", type="run")
 async def rag_agent(question) -> str:
     """
-    The RAG agent flow is:
-    1. Call LLM to plan based on user question + tools available (context retrieval only for now)
-    2. Run the tool calls, if any in plan
-    3. Give tools results to LLM for pretty-print answer
+    Coordinate the RAG agent flow to generate a response based on the user's question.
     """
-
     # Step 1 - Call LLM with tool: plan to use tool or give message.
     message = await llm_tool(question)
 
@@ -162,6 +175,9 @@ async def rag_agent(question) -> str:
 
 @cl.on_chat_start
 async def on_chat_start():
+    """
+    Send a welcome message and set up the initial user session on chat start.
+    """
     await cl.Message(
         content="Welcome, please ask me anything about the Literal documentation !"
     ).send()
@@ -186,6 +202,9 @@ async def on_chat_start():
 
 @cl.on_message
 async def main(message: cl.Message):
+    """
+    Main message handler for incoming user messages.
+    """
     # Hack to have agent logic part of Chatbot answer.
     answer_message = cl.Message(content="")
     await answer_message.send()
