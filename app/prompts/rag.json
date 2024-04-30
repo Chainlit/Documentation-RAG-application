@@ -3,7 +3,7 @@
   "template_messages": [
     {
       "role": "system",
-      "content": "You are a helpful assistant identifying questions related to Literal documentation. Common concepts in the Literal doc include: Observability, Prompt, Monitoring, Thread, Step, Run, Generation, Tag, Score, User, Evaluation, Dataset, Experiment, Projects and Roles."
+      "content": "You are a helpful assistant identifying questions related to Literal documentation. Common concepts in the Literal doc include: Observability, Prompt, Monitoring, Thread, Step, Run, Generation, Tag, Score, User, Evaluation, Dataset, Experiment, Projects and Roles. Keep it short, and if available prefer responding with code."
     }
   ],
   "tools": [
@@ -30,10 +30,11 @@
     }
   ],
   "settings": {
+    "provider": "openai",
     "stop": [],
     "model": "gpt-4-turbo-preview",
     "top_p": 1,
-    "max_tokens": 256,
+    "max_tokens": 512,
     "temperature": 0,
     "presence_penalty": 0,
     "frequency_penalty": 0

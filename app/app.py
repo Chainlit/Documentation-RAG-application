@@ -87,8 +87,18 @@ async def llm_tool(question):
     messages = cl.user_session.get("messages", []) or []
     messages.append({"role": "user", "content": question})
 
-    return await llm(messages, leverage_tools=True)
+    settings = cl.user_session.get("settings", {}) or {}
+    settings["tools"] = cl.user_session.get("tools")
+    settings["tool_choice"] = "auto"
 
+    response = await openai_client.chat.completions.create(
+        messages=messages,
+        **settings,
+    )
+
+    response_message = response.choices[0].message
+    messages.append(response_message)
+    return response_message
 
 async def run_multiple(tool_calls):
     available_tools = {
@@ -127,7 +137,23 @@ async def llm_answer(tool_results):
     messages = cl.user_session.get("messages", []) or []
     messages.extend(tool_results)
 
-    return (await llm(messages)).content
+    settings = cl.user_session.get("settings", {}) or {}
+    settings["stream"] = True
+
+    stream = await openai_client.chat.completions.create(
+        messages=messages,
+        **settings,
+    )
+
+    answer_message = cl.user_session.get("answer_message")
+
+    async for part in stream:
+        if token := part.choices[0].delta.content or "":
+            await answer_message.stream_token(token)
+    await answer_message.update()
+
+    messages.append({"role": "assistant", "content": answer_message.content})
+    return answer_message.content
 
 
 @cl.step(name="RAG Agent", type="run")
@@ -149,7 +175,7 @@ async def rag_agent(question) -> str:
     # Step 2 - Run the tool calls.
     tool_results = await run_multiple(message.tool_calls)
 
-    # Step 3 - Call LLM to answer based on contexts.
+    # Step 3 - Call LLM to answer based on contexts (streamed).
     return await llm_answer(tool_results)
 
 
@@ -183,6 +209,6 @@ async def main(message: cl.Message):
     # Hack to have agent logic part of Chatbot answer.
     answer_message = cl.Message(content="")
     await answer_message.send()
+    cl.user_session.set("answer_message", answer_message)
 
-    answer_message.content = await rag_agent(message.content)
-    await answer_message.update()
+    await rag_agent(message.content)
