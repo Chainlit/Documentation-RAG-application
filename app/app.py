@@ -63,26 +63,6 @@ async def get_relevant_documentation_chunks(question, top_k=5):
     return "\n".join(contexts)
 
 
-async def llm(
-    messages,
-    leverage_tools=False,
-):
-    settings = cl.user_session.get("settings", {}) or {}
-
-    if leverage_tools:
-        settings["tools"] = cl.user_session.get("tools")
-        settings["tool_choice"] = "auto"
-
-    response = await openai_client.chat.completions.create(
-        messages=messages,
-        **settings,
-    )
-
-    response_message = response.choices[0].message
-    messages.append(response_message)
-    return response_message
-
-
 async def llm_tool(question):
     messages = cl.user_session.get("messages", []) or []
     messages.append({"role": "user", "content": question})
@@ -99,6 +79,7 @@ async def llm_tool(question):
     response_message = response.choices[0].message
     messages.append(response_message)
     return response_message
+
 
 async def run_multiple(tool_calls):
     available_tools = {
@@ -184,7 +165,6 @@ async def on_chat_start():
     await cl.Message(
         content="Welcome, please ask me anything about the Literal documentation !"
     ).send()
-
 
     # We load the RAG prompt in Literal to track prompt iteration and
     # enable LLM replays from Literal AI.
