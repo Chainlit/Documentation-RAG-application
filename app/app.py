@@ -52,7 +52,7 @@ async def retrieve(embedding, top_k):
     return response.to_dict()
 
 
-@cl.step(type="tool")
+@cl.step(name="Retrieval", type="tool")
 async def get_relevant_documentation_chunks(question, top_k=5):
     embedding = await embed(question)
 
@@ -73,24 +73,19 @@ async def llm(
         settings["tools"] = cl.user_session.get("tools")
         settings["tool_choice"] = "auto"
 
-    # TODO: Add streaming with tools.
-    # TODO: If create is called with tools, make tool_choice="auto"?
     response = await openai_client.chat.completions.create(
         messages=messages,
         **settings,
-        # tools=cl.user_session.get("tools"),
     )
 
     response_message = response.choices[0].message
     messages.append(response_message)
-    cl.user_session.set("messages", messages)
     return response_message
 
 
-async def plan_steps(question):
+async def llm_tool(question):
     messages = cl.user_session.get("messages", []) or []
     messages.append({"role": "user", "content": question})
-    cl.user_session.set("messages", messages)
 
     return await llm(messages, leverage_tools=True)
 
@@ -124,14 +119,13 @@ async def run_multiple(tool_calls):
     return tool_results
 
 
-async def pretty_print_answer(tool_results):
+async def llm_answer(tool_results):
     """
     Call an LLM to answer the question based on tools results.
     """
 
     messages = cl.user_session.get("messages", []) or []
     messages.extend(tool_results)
-    cl.user_session.set("messages", messages)
 
     return (await llm(messages)).content
 
@@ -145,17 +139,18 @@ async def rag_agent(question) -> str:
     3. Give tools results to LLM for pretty-print answer
     """
 
-    # Step 1 - Call LLM to plan steps.
-    message = await plan_steps(question)
+    # Step 1 - Call LLM with tool: plan to use tool or give message.
+    message = await llm_tool(question)
 
+    # Potentially several calls to retrieve context.
     if not message.tool_calls:
         return message.content
 
     # Step 2 - Run the tool calls.
     tool_results = await run_multiple(message.tool_calls)
 
-    # Step 3 - Call LLM to pretty-print the answer.
-    return await pretty_print_answer(tool_results)
+    # Step 3 - Call LLM to answer based on contexts.
+    return await llm_answer(tool_results)
 
 
 @cl.on_chat_start
@@ -164,10 +159,13 @@ async def on_chat_start():
         content="Welcome, please ask me anything about the Literal documentation !"
     ).send()
 
+
+    # We load the RAG prompt in Literal to track prompt iteration and
+    # enable LLM replays from Literal AI.
     prompt_path = os.path.join(os.getcwd(), "./app/prompts/rag.json")
     with open(prompt_path, "r") as f:
         rag_prompt = json.load(f)
-        # TODO: Do a from_dict to create prompt
+
         prompt = await client.api.get_or_create_prompt(
             name=rag_prompt["name"],
             template_messages=rag_prompt["template_messages"],
@@ -183,8 +181,8 @@ async def on_chat_start():
 @cl.on_message
 async def main(message: cl.Message):
     # Hack to have agent logic part of Chatbot answer.
-    msg = cl.Message(content="")
-    await msg.send()
+    answer_message = cl.Message(content="")
+    await answer_message.send()
 
-    msg.content = await rag_agent(message.content)
-    await msg.update()
+    answer_message.content = await rag_agent(message.content)
+    await answer_message.update()
