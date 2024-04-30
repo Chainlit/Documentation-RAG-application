@@ -13,11 +13,6 @@ The RAG chatbot application for our platform [documentation](https://docs.getlit
 - `pip install -r app/requirements.txt`
 - `chainlit run app/app.py`
 
-### The Chainlit Copilot
-
-- Make sure the Chainlit application is running.
-- `python -m http.server 3004 --directory copilot`
-
 ### Embed the documentation
 
 To upload the latest Literal documentation embeddings to Pinecone:
