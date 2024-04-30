@@ -23,6 +23,7 @@ pinecone_spec = ServerlessSpec(
 
 cl.instrument_openai()
 
+prompt_path = os.path.join(os.getcwd(), "./app/prompts/rag.json")
 
 def create_pinecone_index(name, client, spec):
     """
@@ -70,9 +71,7 @@ async def get_relevant_documentation_chunks(question, top_k=5):
 
     retrieved_chunks = await retrieve(embedding, top_k)
 
-    contexts = [match["metadata"]["text"] for match in retrieved_chunks["matches"]]
-
-    return "\n".join(contexts)
+    return [match["metadata"]["text"] for match in retrieved_chunks["matches"]]
 
 
 async def llm_tool(question):
@@ -118,7 +117,7 @@ async def run_multiple(tool_calls):
             "tool_call_id": tool_call.id,
             "role": "tool",
             "name": function_name,
-            "content": function_response,
+            "content": "\n".join(function_response),
         }
 
     # Run tool calls in parallel.
@@ -179,12 +178,11 @@ async def on_chat_start():
     Send a welcome message and set up the initial user session on chat start.
     """
     await cl.Message(
-        content="Welcome, please ask me anything about the Literal documentation !"
+        content="Welcome, please ask me anything about the Literal documentation!"
     ).send()
 
     # We load the RAG prompt in Literal to track prompt iteration and
     # enable LLM replays from Literal AI.
-    prompt_path = os.path.join(os.getcwd(), "./app/prompts/rag.json")
     with open(prompt_path, "r") as f:
         rag_prompt = json.load(f)
 
