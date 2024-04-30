@@ -1,6 +1,6 @@
-# RAG Copilot
+# RAG application using Chainlit, OpenAI, Pinecone and Literal
 
-The Chainlit copilot for our platform [documentation](https://docs.getliteral.ai/introduction).
+The RAG chatbot application for our platform [documentation](https://docs.getliteral.ai/introduction).
 
 ## How to use?
 
@@ -20,7 +20,7 @@ The Chainlit copilot for our platform [documentation](https://docs.getliteral.ai
 
 ### Embed the documentation
 
-To upload the latest embeddings to Pinecone:
+To upload the latest Literal documentation embeddings to Pinecone:
 
 - `cp embed-documentation/.env.example embed-documentation/.env`
 - Get an OpenAI API key [here](https://platform.openai.com/docs/quickstart/step-2-setup-your-api-key)
