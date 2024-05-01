@@ -117,7 +117,6 @@ async def run_multiple(tool_calls):
         function_to_call = available_tools[function_name]
         function_args = json.loads(tool_call.function.arguments)
 
-        # TODO: Parametrize the arguments depending on tool.
         function_response = await function_to_call(
             question=function_args.get("question"),
             top_k=function_args.get("top_k"),
