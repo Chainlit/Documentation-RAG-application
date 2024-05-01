@@ -1,23 +1,43 @@
-import chainlit as cl
 import os
-from dotenv import load_dotenv
-from openai import AsyncOpenAI
-from pinecone import Pinecone, ServerlessSpec
-from literalai import AsyncLiteralClient
+import json
+import asyncio
+import chainlit as cl
 
-load_dotenv()
-client = AsyncLiteralClient()
+from openai import AsyncOpenAI
+from pinecone import Pinecone, ServerlessSpec  # type: ignore
+
+from literalai import LiteralClient
+
+client = LiteralClient()
 openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 pinecone_client = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
 pinecone_spec = ServerlessSpec(
-    cloud=os.environ.get("PINECONE_CLOUD"), region=os.environ.get("PINECONE_REGION")
+    cloud=os.environ.get("PINECONE_CLOUD"),
+    region=os.environ.get("PINECONE_REGION"),
 )
 
 cl.instrument_openai()
 
+prompt_path = os.path.join(os.getcwd(), "app/prompts/rag.json")
+
+# We load the RAG prompt in Literal to track prompt iteration and
+# enable LLM replays from Literal AI.
+with open(prompt_path, "r") as f:
+    rag_prompt = json.load(f)
+
+    prompt = client.api.get_or_create_prompt(
+        name=rag_prompt["name"],
+        template_messages=rag_prompt["template_messages"],
+        settings=rag_prompt["settings"],
+        tools=rag_prompt["tools"],
+    )
+
 
 def create_pinecone_index(name, client, spec):
+    """
+    Create a Pinecone index if it does not already exist.
+    """
     if name not in client.list_indexes().names():
         client.create_index(name, dimension=1536, metric="cosine", spec=spec)
     return pinecone_client.Index(name)
@@ -29,71 +49,157 @@ pinecone_index = create_pinecone_index(
 
 
 @cl.step(name="Embed", type="embedding")
-async def embed(query, model="text-embedding-ada-002"):
-    embedding = await openai_client.embeddings.create(input=query, model=model)
+async def embed(question, model="text-embedding-ada-002"):
+    """
+    Embed a question using the specified model and return the embedding.
+    """
+    embedding = await openai_client.embeddings.create(input=question, model=model)
 
     return embedding.data[0].embedding
 
 
 @cl.step(name="Retrieve", type="retrieval")
-async def retrieve(embedding):
+async def retrieve(embedding, top_k):
+    """
+    Retrieve top_k closest vectors from the Pinecone index using the provided embedding.
+    """
     if pinecone_index == None:
         raise Exception("Pinecone index not initialized")
-    response = pinecone_index.query(vector=embedding, top_k=5, include_metadata=True)
+    response = pinecone_index.query(
+        vector=embedding, top_k=top_k, include_metadata=True
+    )
     return response.to_dict()
 
 
-@cl.step(name="LLM", type="llm")
-async def llm(
-    prompt,
-    chat_model="gpt-4-turbo-preview",
-):
-    messages = cl.user_session.get("messages", [])
-    messages.append(prompt)
-    settings = {"temperature": 0, "stream": True, "model": chat_model}
-    stream = await openai_client.chat.completions.create(messages=messages, **settings)
-    message = cl.message.Message(content="")
-    await message.send()
+@cl.step(name="Retrieval", type="tool")
+async def get_relevant_documentation_chunks(question, top_k=5):
+    """
+    Retrieve relevant documentation chunks based on the question embedding.
+    """
+    embedding = await embed(question)
+
+    retrieved_chunks = await retrieve(embedding, top_k)
+
+    return [match["metadata"]["text"] for match in retrieved_chunks["matches"]]
+
+
+async def llm_tool(question):
+    """
+    Generate a response from the LLM based on the user's question.
+    """
+    messages = cl.user_session.get("messages", []) or []
+    messages.append({"role": "user", "content": question})
+
+    settings = cl.user_session.get("settings", {}) or {}
+    settings["tools"] = cl.user_session.get("tools")
+    settings["tool_choice"] = "auto"
+
+    response = await openai_client.chat.completions.create(
+        messages=messages,
+        **settings,
+    )
+
+    response_message = response.choices[0].message
+    messages.append(response_message)
+    return response_message
+
+
+async def run_multiple(tool_calls):
+    """
+    Execute multiple tool calls asynchronously.
+    """
+    available_tools = {
+        "get_relevant_documentation_chunks": get_relevant_documentation_chunks
+    }
+
+    async def run_single(tool_call):
+        function_name = tool_call.function.name
+        function_to_call = available_tools[function_name]
+        function_args = json.loads(tool_call.function.arguments)
+
+        function_response = await function_to_call(
+            question=function_args.get("question"),
+            top_k=function_args.get("top_k"),
+        )
+        return {
+            "tool_call_id": tool_call.id,
+            "role": "tool",
+            "name": function_name,
+            "content": "\n".join(function_response),
+        }
+
+    # Run tool calls in parallel.
+    tool_results = await asyncio.gather(
+        *(run_single(tool_call) for tool_call in tool_calls)
+    )
+    return tool_results
+
+
+async def llm_answer(tool_results):
+    """
+    Generate an answer from the LLM based on the results of tool calls.
+    """
+    messages = cl.user_session.get("messages", []) or []
+    messages.extend(tool_results)
+
+    settings = cl.user_session.get("settings", {}) or {}
+    settings["stream"] = True
+
+    stream = await openai_client.chat.completions.create(
+        messages=messages,
+        **settings,
+    )
+
+    curr_step = cl.context.current_step
+    if not curr_step:
+        return ""
 
     async for part in stream:
         if token := part.choices[0].delta.content or "":
-            await message.stream_token(token)
+            await curr_step.stream_token(token)
+    await curr_step.update()
 
-    await message.update()
-    messages.append({"role": "assistant", "content": message.content})
-    cl.user_session.set("messages", messages)
-    return message.content
+    messages.append({"role": "assistant", "content": curr_step.output})
+    return curr_step.output
 
 
-@cl.step(name="Query", type="run")
-async def run(query):
-    embedding = await embed(query)
-    stored_embeddings = await retrieve(embedding)
-    contexts = []
-    prompt = await client.api.get_prompt(name="RAG prompt")
+@cl.step(name="RAG Agent", type="run", root=True)
+async def rag_agent(question) -> str:
+    """
+    Coordinate the RAG agent flow to generate a response based on the user's question.
+    """
+    # Step 1 - Call LLM with tool: plan to use tool or give message.
+    message = await llm_tool(question)
 
-    if not prompt:
-        raise Exception("Prompt not found")
-    for match in stored_embeddings["matches"]:
-        contexts.append(match["metadata"]["text"])
+    # Potentially several calls to retrieve context.
+    if not message.tool_calls:
+        return message.content
 
-    completion = await llm(prompt.format({"context": contexts, "question": query})[-1])
+    # Step 2 - Run the tool calls.
+    tool_results = await run_multiple(message.tool_calls)
 
-    return completion
+    # Step 3 - Call LLM to answer based on contexts (streamed).
+    return await llm_answer(tool_results)
 
 
 @cl.on_chat_start
 async def on_chat_start():
-    prompt = await client.api.get_prompt(name="RAG prompt")
+    """
+    Send a welcome message and set up the initial user session on chat start.
+    """
+    await cl.Message(
+        content="Welcome, please ask me anything about the Literal documentation!",
+        disable_feedback=True
+    ).send()
 
-    if not prompt:
-        raise Exception("Prompt not found")
-    cl.user_session.set(
-        "messages",
-        [prompt.format()[0]],
-    )
+    cl.user_session.set("messages", prompt.format_messages())
+    cl.user_session.set("settings", prompt.settings)
+    cl.user_session.set("tools", prompt.tools)
 
 
 @cl.on_message
 async def main(message: cl.Message):
-    await run(message.content)
+    """
+    Main message handler for incoming user messages.
+    """
+    await rag_agent(message.content)

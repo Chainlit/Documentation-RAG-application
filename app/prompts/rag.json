@@ -1,0 +1,42 @@
+{
+  "name": "RAG prompt - Tooled",
+  "template_messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant identifying questions related to Literal documentation. Common concepts in the Literal doc include: Observability, Prompt, Monitoring, Thread, Step, Run, Generation, Tag, Score, User, Evaluation, Dataset, Experiment, Projects and Roles. Keep it short, and if available prefer responding with code."
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_relevant_documentation_chunks",
+        "description": "Gets the relevant documentation chunks for a given question or query.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "description": "The question or query to answer on the documentation."
+            },
+            "top_k": {
+              "type": "integer",
+              "description": "The number of documentation chunks to retrieve, e.g. 5."
+            }
+          },
+          "required": ["question"]
+        }
+      }
+    }
+  ],
+  "settings": {
+    "provider": "openai",
+    "stop": [],
+    "model": "gpt-4-turbo-preview",
+    "top_p": 1,
+    "max_tokens": 512,
+    "temperature": 0,
+    "presence_penalty": 0,
+    "frequency_penalty": 0
+  }
+}
