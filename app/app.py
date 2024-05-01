@@ -6,13 +6,13 @@ import chainlit as cl
 from openai import AsyncOpenAI
 from pinecone import Pinecone, ServerlessSpec  # type: ignore
 
-from literalai import AsyncLiteralClient
+from literalai import LiteralClient
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = AsyncLiteralClient()
+client = LiteralClient()
 openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 pinecone_client = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
@@ -24,6 +24,19 @@ pinecone_spec = ServerlessSpec(
 cl.instrument_openai()
 
 prompt_path = os.path.join(os.getcwd(), "./app/prompts/rag.json")
+
+# We load the RAG prompt in Literal to track prompt iteration and
+# enable LLM replays from Literal AI.
+with open(prompt_path, "r") as f:
+    rag_prompt = json.load(f)
+
+    prompt = client.api.get_or_create_prompt(
+        name=rag_prompt["name"],
+        template_messages=rag_prompt["template_messages"],
+        settings=rag_prompt["settings"],
+        tools=rag_prompt["tools"],
+    )
+
 
 def create_pinecone_index(name, client, spec):
     """
@@ -142,18 +155,20 @@ async def llm_answer(tool_results):
         **settings,
     )
 
-    answer_message = cl.user_session.get("answer_message")
+    curr_step = cl.context.current_step
+    if not curr_step:
+        return ""
 
     async for part in stream:
         if token := part.choices[0].delta.content or "":
-            await answer_message.stream_token(token)
-    await answer_message.update()
+            await curr_step.stream_token(token)
+    await curr_step.update()
 
-    messages.append({"role": "assistant", "content": answer_message.content})
-    return answer_message.content
+    messages.append({"role": "assistant", "content": curr_step.output})
+    return curr_step.output
 
 
-@cl.step(name="RAG Agent", type="run")
+@cl.step(name="RAG Agent", type="run", root=True)
 async def rag_agent(question) -> str:
     """
     Coordinate the RAG agent flow to generate a response based on the user's question.
@@ -178,20 +193,9 @@ async def on_chat_start():
     Send a welcome message and set up the initial user session on chat start.
     """
     await cl.Message(
-        content="Welcome, please ask me anything about the Literal documentation!"
+        content="Welcome, please ask me anything about the Literal documentation!",
+        disable_feedback=True
     ).send()
-
-    # We load the RAG prompt in Literal to track prompt iteration and
-    # enable LLM replays from Literal AI.
-    with open(prompt_path, "r") as f:
-        rag_prompt = json.load(f)
-
-        prompt = await client.api.get_or_create_prompt(
-            name=rag_prompt["name"],
-            template_messages=rag_prompt["template_messages"],
-            settings=rag_prompt["settings"],
-            tools=rag_prompt["tools"],
-        )
 
     cl.user_session.set("messages", prompt.format_messages())
     cl.user_session.set("settings", prompt.settings)
@@ -203,9 +207,4 @@ async def main(message: cl.Message):
     """
     Main message handler for incoming user messages.
     """
-    # Hack to have agent logic part of Chatbot answer.
-    answer_message = cl.Message(content="")
-    await answer_message.send()
-    cl.user_session.set("answer_message", answer_message)
-
     await rag_agent(message.content)
