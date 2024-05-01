@@ -8,10 +8,6 @@ from pinecone import Pinecone, ServerlessSpec  # type: ignore
 
 from literalai import LiteralClient
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 client = LiteralClient()
 openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
@@ -23,7 +19,7 @@ pinecone_spec = ServerlessSpec(
 
 cl.instrument_openai()
 
-prompt_path = os.path.join(os.getcwd(), "./app/prompts/rag.json")
+prompt_path = os.path.join(os.getcwd(), "app/prompts/rag.json")
 
 # We load the RAG prompt in Literal to track prompt iteration and
 # enable LLM replays from Literal AI.
