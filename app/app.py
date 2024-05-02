@@ -91,12 +91,12 @@ async def llm_tool(question):
     messages.append({"role": "user", "content": question})
 
     settings = cl.user_session.get("settings", {}) or {}
-    settings["tools"] = cl.user_session.get("tools")
-    settings["tool_choice"] = "auto"
 
     response = await openai_client.chat.completions.create(
         messages=messages,
         **settings,
+        tools=cl.user_session.get("tools"),
+        tool_choice="auto"
     )
 
     response_message = response.choices[0].message
@@ -143,11 +143,11 @@ async def llm_answer(tool_results):
     messages.extend(tool_results)
 
     settings = cl.user_session.get("settings", {}) or {}
-    settings["stream"] = True
 
     stream = await openai_client.chat.completions.create(
         messages=messages,
         **settings,
+        stream=True
     )
 
     curr_step = cl.context.current_step
