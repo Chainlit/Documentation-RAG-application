@@ -150,13 +150,14 @@ async def llm_answer(tool_results):
         stream=True
     )
 
-    answer_message = cl.user_session.get("answer_message")
+    answer_message: cl.Message = cl.user_session.get("answer_message")
     async for part in stream:
         if token := part.choices[0].delta.content or "":
             await answer_message.stream_token(token)
 
+    await answer_message.update()
     messages.append({"role": "assistant", "content": answer_message.content})
-    return answer_message.content
+    return answer_message
 
 
 @cl.step(name="RAG Agent", type="run")
@@ -175,8 +176,7 @@ async def rag_agent(question):
     tool_results = await run_multiple(message.tool_calls)
 
     # Step 3 - Call LLM to answer based on contexts (streamed).
-    await llm_answer(tool_results)
-    return cl.context.current_step.id
+    return (await llm_answer(tool_results)).content
 
 
 @cl.on_chat_start
@@ -199,11 +199,9 @@ async def main(message: cl.Message):
     """
     Main message handler for incoming user messages.
     """
+    
     answer_message = cl.Message(content="")
+    await answer_message.send()
     cl.user_session.set("answer_message", answer_message)
 
-    step_id = await rag_agent(message.content)
-    answer_message.metadata = {
-        "step_id": step_id,
-    }
-    await answer_message.send()
+    await rag_agent(message.content)
