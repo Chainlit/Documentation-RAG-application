@@ -170,6 +170,9 @@ async def rag_agent(question):
 
     # Potentially several calls to retrieve context.
     if not message.tool_calls:
+        answer_message: cl.Message = cl.user_session.get("answer_message")
+        answer_message.content = message.content
+        await answer_message.update()
         return message.content
 
     # Step 2 - Run the tool calls.
