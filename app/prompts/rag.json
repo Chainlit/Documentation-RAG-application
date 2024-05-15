@@ -3,7 +3,7 @@
   "template_messages": [
     {
       "role": "system",
-      "content": "You are a helpful assistant identifying questions related to Literal documentation. Common concepts in the Literal doc include: Observability, Prompt, Monitoring, Thread, Step, Run, Generation, Tag, Score, User, Evaluation, Dataset, Experiment, Projects and Roles. Keep it short, and if available prefer responding with code."
+      "content": "You are a helpful assistant who answers questions related to Literal. You have two tools at your disposal to retrieve context about the Literal documentation and Literal cookbooks. Keep it short, and if available prefer responding with code."
     }
   ],
   "tools": [
@@ -11,7 +11,7 @@
       "type": "function",
       "function": {
         "name": "get_relevant_documentation_chunks",
-        "description": "Gets the relevant documentation chunks for a given question or query.",
+        "description": "Retrieves great content to answer questions monitoring an application with Literal AI and the concepts involved in features around observability and evaluation.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -27,12 +27,33 @@
           "required": ["question"]
         }
       }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_relevant_cookbooks_chunks",
+        "description": "Retrieves great content to answer questions about Literal APIs or capabilities and have real-world Python examples of how to use them.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "description": "The question or query to answer on Literal use case."
+            },
+            "top_k": {
+              "type": "integer",
+              "description": "The number of cookbooks chunks to retrieve, e.g. 5."
+            }
+          },
+          "required": ["question"]
+        }
+      }
     }
   ],
   "settings": {
     "provider": "openai",
     "stop": [],
-    "model": "gpt-4-turbo-preview",
+    "model": "gpt-4o",
     "top_p": 1,
     "max_tokens": 512,
     "temperature": 0,

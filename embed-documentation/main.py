@@ -7,6 +7,7 @@ from pinecone import Pinecone, ServerlessSpec
 load_dotenv()
 
 documentation_path = os.path.join(os.getcwd(), "./documentation")
+cookbooks_path = os.path.join(os.getcwd(), "./cookbooks")
 
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
@@ -20,12 +21,14 @@ def create_dataset(id, path):
     values = []
 
     for filename in os.listdir(path):
-        # Skip non mdx files
-        if not filename.endswith("mdx"):
-            continue
-
         with open(os.path.join(path, filename), "r") as file:
             file_content = file.read()
+ 
+        if filename.endswith("__init__.py"):
+            continue
+
+        if not filename.endswith("mdx") and not filename.endswith("md"):
+            values.append({"title": filename, "description": "Cookbook", "content": file_content})
 
         # Extract file metadata
         metadata = re.search(
@@ -37,7 +40,7 @@ def create_dataset(id, path):
             continue
         file_title, file_description = metadata.groups()
 
-        # Strop newlines except for code blocks
+        # Strip newlines except for code blocks
         content = file_content.split("---", 2)[-1]
         content_parts = re.split(r"(```.*?```)", content, flags=re.DOTALL)
 
@@ -46,9 +49,7 @@ def create_dataset(id, path):
                 content_parts[i] = content_parts[i].replace("\n", " ")
         content = "".join(content_parts)
 
-        values.append(
-            {"title": file_title, "description": file_description, "content": content}
-        )
+        values.append({"title": file_title, "description": file_description, "content": content})
 
     return {"id": id, "values": values}
 
@@ -65,14 +66,12 @@ def create_embedding_set(dataset, model="text-embedding-ada-002"):
 
     return {"id": dataset["id"], "values": values}
 
-
 def create_pinecone_index(name, client, spec):
     if name in client.list_indexes().names():
         client.delete_index(name)
 
     client.create_index(name, dimension=1536, metric="cosine", spec=spec)
     return pinecone_client.Index(name)
-
 
 def upload_to_index(index, embedding_set, batch_size=100):
     values = embedding_set["values"]
@@ -95,14 +94,19 @@ def upload_to_index(index, embedding_set, batch_size=100):
         index.upsert(batch)
 
 
-dataset = create_dataset("dataset_1", documentation_path)
-print("Dataset created from documentation")
-embeddings = create_embedding_set(dataset)
-print("Embeddings created from dataset")
+dataset_documentation = create_dataset("dataset_documentation", documentation_path)
+dataset_cookbooks = create_dataset("dataset_cookbooks", cookbooks_path)
+print("Datasets created from documentation & cookbooks")
+
+embeddings_documentation = create_embedding_set(dataset_documentation)
+embeddings_cookbooks = create_embedding_set(dataset_cookbooks)
+print("Embeddings created from datasets")
+
 pinecone_index = create_pinecone_index(
     "literal-rag-index", pinecone_client, pinecone_spec
 )
 print("Pinecone index created")
 
-upload_to_index(pinecone_index, embeddings)
+upload_to_index(pinecone_index, embeddings_documentation)
+upload_to_index(pinecone_index, embeddings_cookbooks)
 print("Embeddings uploaded to index")

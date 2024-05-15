@@ -3,16 +3,17 @@
 SCRIPT=$(realpath "$0")
 SCRIPT_DIR=$(dirname "$SCRIPT")
 
-rm -rf ./documentation
-mkdir -p ./documentation
+rm -rf ./cookbooks ./documentation
+mkdir -p ./cookbooks ./documentation
+
 git clone git@github.com:Chainlit/literal-docs.git
+git clone git@github.com:Chainlit/literal-cookbook.git
 
-FILE_PATHS=$(find ./literal-docs -name "*.mdx")
-
-while IFS= read -r file; do
-    cp "$file" ./documentation/
-done <<< "$FILE_PATHS"
+# Use *.mdx from documentation and README.md, *.py and *.ts from cookbook
+find ./literal-docs -name "*.mdx" -exec bash -c 'newname="./documentation/$(echo {} | sed "s|/|_|g")"; cp "{}" "$newname"' \;
+find ./literal-cookbook \( -name "README.md" -o -name "*.py" -o -name "*.ts" \) -exec bash -c 'newname="./cookbooks/$(echo {} | sed "s|/|_|g")"; cp "{}" "$newname"' \;
 
 rm -rf ./literal-docs
+rm -rf ./literal-cookbook
 
 python3 "$SCRIPT_DIR/main.py"
