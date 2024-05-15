@@ -1,12 +1,17 @@
 import os
 import json
 import asyncio
+import discord
 import chainlit as cl
+from chainlit.discord.app import client as discord_client
 
+from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from pinecone import Pinecone, ServerlessSpec  # type: ignore
 
 from literalai import LiteralClient
+
+load_dotenv()
 
 client = LiteralClient()
 openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
@@ -59,28 +64,40 @@ async def embed(question, model="text-embedding-ada-002"):
 
 
 @cl.step(name="Retrieve", type="retrieval")
-async def retrieve(embedding, top_k):
+async def retrieve(embedding, dataset_id, top_k):
     """
     Retrieve top_k closest vectors from the Pinecone index using the provided embedding.
     """
     if pinecone_index == None:
         raise Exception("Pinecone index not initialized")
     response = pinecone_index.query(
-        vector=embedding, top_k=top_k, include_metadata=True
+        vector=embedding, top_k=top_k, include_metadata=True, 
+        filter={
+            "dataset_id": {"$eq": dataset_id}
+        }
     )
     return response.to_dict()
 
 
-@cl.step(name="Retrieval", type="tool")
-async def get_relevant_documentation_chunks(question, top_k=5):
+async def get_relevant_chunks(question, dataset_id, top_k=5):
     """
-    Retrieve relevant documentation chunks based on the question embedding.
+    Retrieve relevant chunks from dataset based on the question embedding.
     """
     embedding = await embed(question)
 
-    retrieved_chunks = await retrieve(embedding, top_k)
+    retrieved_chunks = await retrieve(embedding, dataset_id, top_k)
 
     return [match["metadata"]["text"] for match in retrieved_chunks["matches"]]
+
+
+@cl.step(name="Documentation Retrieval", type="tool")
+async def get_relevant_documentation_chunks(question, top_k=5):
+    return await get_relevant_chunks(question, "dataset_documentation", top_k)
+
+
+@cl.step(name="Cookbooks Retrieval", type="tool")
+async def get_relevant_cookbooks_chunks(question, top_k=5):
+    return await get_relevant_chunks(question, "dataset_cookbooks", top_k)
 
 
 async def llm_tool(question):
@@ -109,7 +126,8 @@ async def run_multiple(tool_calls):
     Execute multiple tool calls asynchronously.
     """
     available_tools = {
-        "get_relevant_documentation_chunks": get_relevant_documentation_chunks
+        "get_relevant_documentation_chunks": get_relevant_documentation_chunks,
+        "get_relevant_cookbooks_chunks": get_relevant_cookbooks_chunks
     }
 
     async def run_single(tool_call):
@@ -119,7 +137,7 @@ async def run_multiple(tool_calls):
 
         function_response = await function_to_call(
             question=function_args.get("question"),
-            top_k=function_args.get("top_k"),
+            top_k=function_args.get("top_k", 5),
         )
         return {
             "tool_call_id": tool_call.id,
@@ -187,14 +205,38 @@ async def on_chat_start():
     """
     Send a welcome message and set up the initial user session on chat start.
     """
-    await cl.Message(
-        content="Welcome, please ask me anything about the Literal documentation!",
-        disable_feedback=True
-    ).send()
+
+    client_type = cl.user_session.get("client_type")
+
+    if client_type != "discord":
+        await cl.Message(
+            content="Welcome, please ask me anything about the Literal documentation!",
+            disable_feedback=True
+        ).send()
 
     cl.user_session.set("messages", prompt.format_messages())
     cl.user_session.set("settings", prompt.settings)
     cl.user_session.set("tools", prompt.tools)
+
+    if client_type == "discord":
+        # Discord limits the number of characters to 2000
+        prompt.settings["max_tokens"] = 400
+
+
+async def use_discord_history(limit = 10):
+    messages = cl.user_session.get("messages", [])
+    channel: discord.abc.MessageableChannel = cl.user_session.get("discord_channel")
+
+    if channel:
+        cl.user_session.get("messages")
+        discord_messages = [message async for message in channel.history(limit=limit)]
+
+        # Go through last `limit` messages and remove the current message.
+        for x in discord_messages[::-1][:-1]:
+            messages.append({
+                "role": "assistant" if x.author.name == discord_client.user.name else "user",
+                "content": x.clean_content if x.clean_content else x.channel.name # first message is empty
+            })
 
 
 @cl.on_message
@@ -202,9 +244,10 @@ async def main(message: cl.Message):
     """
     Main message handler for incoming user messages.
     """
+    # The user session resets on every Discord message. Add previous chat messages manually.
+    await use_discord_history()
     
     answer_message = cl.Message(content="")
     await answer_message.send()
     cl.user_session.set("answer_message", answer_message)
-
     await rag_agent(message.content)
