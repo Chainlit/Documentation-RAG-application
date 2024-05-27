@@ -1,4 +1,4 @@
 openai>=1.9.0
 pinecone-client>=3.0.2
-chainlit>=1.0.500
+chainlit==1.1.300rc0
 discord>=2.3.0

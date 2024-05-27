@@ -53,6 +53,22 @@ pinecone_index = create_pinecone_index(
 )
 
 
+@cl.set_starters
+async def set_starters():
+    return [
+        cl.Starter(
+            label="What is Literal AI?",
+            message="What is Literal AI and what makes it unique?",
+            icon="/public/learn.svg",
+            ),
+        cl.Starter(
+            label="Install Literal AI SDKs",
+            message="How to instrument my application with the Literal AI SDKs?",
+            icon="/public/terminal.svg",
+            ), 
+        ]
+
+
 @cl.step(name="Embed", type="embedding")
 async def embed(question, model="text-embedding-ada-002"):
     """
@@ -173,7 +189,7 @@ async def llm_answer(tool_results):
         if token := part.choices[0].delta.content or "":
             await answer_message.stream_token(token)
 
-    await answer_message.update()
+    await answer_message.send()
     messages.append({"role": "assistant", "content": answer_message.content})
     return answer_message
 
@@ -190,7 +206,7 @@ async def rag_agent(question):
     if not message.tool_calls:
         answer_message: cl.Message = cl.user_session.get("answer_message")
         answer_message.content = message.content
-        await answer_message.update()
+        await answer_message.send()
         return message.content
 
     # Step 2 - Run the tool calls.
@@ -207,12 +223,6 @@ async def on_chat_start():
     """
 
     client_type = cl.user_session.get("client_type")
-
-    if client_type != "discord":
-        await cl.Message(
-            content="Welcome, please ask me anything about the Literal documentation!",
-            disable_feedback=True
-        ).send()
 
     cl.user_session.set("messages", prompt.format_messages())
     cl.user_session.set("settings", prompt.settings)
@@ -248,6 +258,5 @@ async def main(message: cl.Message):
     await use_discord_history()
     
     answer_message = cl.Message(content="")
-    await answer_message.send()
     cl.user_session.set("answer_message", answer_message)
     await rag_agent(message.content)
